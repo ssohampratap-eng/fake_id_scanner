@@ -5,9 +5,12 @@ from typing import Dict, Any
 
 try:
     import easyocr
-    READER = easyocr.Reader(['en', 'hi'], gpu=False)
-except Exception:
     READER = None
+    READER_ERROR = None
+except Exception:
+    easyocr = None
+    READER = None
+    READER_ERROR = "EasyOCR import failed. Install easyocr and its runtime dependencies."
 
 # Institutional / Header stopwords jo name candidate nahi ho sakte
 GLOBAL_STOPWORDS = {
@@ -22,14 +25,34 @@ GLOBAL_STOPWORDS = {
 }
 
 def extract_document_fields(image_path: str) -> Dict[str, Any]:
+    global READER, READER_ERROR
+    if READER is None and easyocr is not None and READER_ERROR is None:
+        try:
+            READER = easyocr.Reader(['en', 'hi'], gpu=False, verbose=False)
+        except Exception as exc:
+            READER_ERROR = f"EasyOCR model load failed: {exc}"
+
     if READER is None:
-        return {"extracted_text": "", "fields": {}, "warnings": ["EasyOCR module not initialized."]}
+        return {
+            "extracted_text": "",
+            "fields": {},
+            "warnings": [READER_ERROR or "EasyOCR module not initialized."]
+        }
 
     img = cv2.imread(image_path)
     if img is None:
         return {"extracted_text": "", "fields": {}, "warnings": ["Image load failed from disk."]}
 
-    results = READER.readtext(image_path)
+    # Upscaling and local contrast help with small printed Aadhaar text.
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    scale = 2 if max(img.shape[:2]) < 1800 else 1
+    if scale > 1:
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+
+    source_images = [img, enhanced]
+    result_sets = [READER.readtext(source) for source in source_images]
+    results = max(result_sets, key=lambda result: sum(float(item[2]) for item in result))
     full_lines = []
     boxes_info = []
 

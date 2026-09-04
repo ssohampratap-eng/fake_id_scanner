@@ -9,7 +9,7 @@ except Exception:
     zxingcpp = None
 
 try:
-    from scanner_qr import decode_aadhaar_secure_qr
+    from secure_qr_scanner import decode_aadhaar_secure_qr
 except ImportError:
     decode_aadhaar_secure_qr = None
 
@@ -23,26 +23,23 @@ def _try_decode(img) -> Optional[Any]:
 
 
 def _decode_with_fallbacks(img_bgr):
-    bc = _try_decode(img_bgr)
-    if bc:
-        return bc
-
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    bc = _try_decode(gray)
-    if bc:
-        return bc
-
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
-    bc = _try_decode(enhanced)
-    if bc:
-        return bc
-
     h, w = gray.shape[:2]
     upscaled = cv2.resize(gray, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
-    bc = _try_decode(upscaled)
-    if bc:
-        return bc
+    sources = [img_bgr, gray, enhanced, upscaled]
+
+    # Aadhaar QR is often small and placed on the right side of the card.
+    for source in (img_bgr, gray, enhanced):
+        source_h, source_w = source.shape[:2]
+        sources.append(source[:, int(source_w * 0.35):])
+        sources.append(source[int(source_h * 0.15):int(source_h * 0.90), int(source_w * 0.35):])
+
+    for source in sources:
+        bc = _try_decode(source)
+        if bc:
+            return bc
 
     return None
 

@@ -53,6 +53,7 @@ class DocumentAnalyzer:
         # 2. Module Execution & Signal Gathering
         ocr_result = extract_document_fields(image_path)
         fields = ocr_result.get("fields", {})
+        warnings.extend(ocr_result.get("warnings", []))
 
         def get_field_val(k):
             val = fields.get(k, "Not Detected")
@@ -64,6 +65,33 @@ class DocumentAnalyzer:
         scanned_dob = get_field_val("dob")
         scanned_gender = get_field_val("gender")
         scanned_issue = get_field_val("issue_date")
+
+        missing_required_fields = []
+        if len(clean_id) != 12 or not clean_id.isdigit():
+            missing_required_fields.append("12-digit Aadhaar number")
+        if scanned_name == "Not Detected":
+            missing_required_fields.append("name")
+        if scanned_dob == "Not Detected":
+            missing_required_fields.append("date of birth/year of birth")
+
+        if missing_required_fields:
+            return {
+                "status": "FAIL",
+                "verdict": "OCR_INSUFFICIENT_REUPLOAD",
+                "trust_score": 0,
+                "confidence_level": "LOW",
+                "flags": [
+                    "OCR required fields read nahi kar saka: "
+                    + ", ".join(missing_required_fields),
+                    "Document authenticity score nahi diya gaya; clear image upload karein."
+                ],
+                "warnings": warnings,
+                "heatmap_path": None,
+                "quality": quality,
+                "data": {},
+                "document_type": doc_type,
+                "analysis_timestamp": datetime.now().isoformat()
+            }
 
         tampering_result = run_ela_detection(image_path)
         metadata_result = scan_metadata(image_path)
@@ -108,13 +136,7 @@ class DocumentAnalyzer:
                 "screen_attack": screen_res,
                 "copy_move": copy_move_res,
                 "metadata": metadata_result,
-                "data": {
-                    "Extracted_Name": scanned_name,
-                    "DOB": scanned_dob,
-                    "Gender": scanned_gender,
-                    "Scanned_ID": self._mask_identifier(clean_id) if clean_id else "Not Detected",
-                    "QR_Detected": qr_result.get("qr_found", False)
-                },
+                "data": {},
                 "document_type": doc_type,
                 "analysis_timestamp": datetime.now().isoformat()
             }
@@ -180,7 +202,13 @@ class DocumentAnalyzer:
         trust_score = max(0, min(100, total_score))
 
         # Final Status & Verdict Assignment based on Trust Score
-        if trust_score >= 90 and qr_result.get("qr_found") and qr_result.get("is_matched"):
+        if checksum_status == "HARD_FAIL":
+            verdict = "HIGH_RISK_REJECT"
+            status = "FAIL"
+        elif checksum_status == "SOFT_FAIL":
+            verdict = "MANUAL_REVIEW_REQUIRED"
+            status = "MANUAL_REVIEW"
+        elif trust_score >= 90 and qr_result.get("qr_found") and qr_result.get("is_matched"):
             verdict = "VERIFIED_OFFLINE"
             status = "PASS"
         elif trust_score >= 70:
@@ -201,6 +229,9 @@ class DocumentAnalyzer:
             "QR_Detected": qr_result.get("qr_found", False),
             "Score_Breakdown": str(score_breakdown)
         }
+
+        if status != "PASS":
+            masked_data = {}
 
         return {
             "status": status,

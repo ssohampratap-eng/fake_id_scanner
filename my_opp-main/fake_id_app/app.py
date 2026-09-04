@@ -67,6 +67,8 @@ with col2:
                 st.warning(f"⚠️ Status: **{verdict}** (Poor Document Capture Quality)")
             elif verdict == "HIGH_RISK_REJECT":
                 st.error(f"🚨 Status: **{verdict}** (Decisive Fraud/Tamper Indicators Detected)")
+            elif verdict == "OCR_INSUFFICIENT_REUPLOAD":
+                st.warning(f"⚠️ Status: **{verdict}** (Required fields read nahi hue; clear image upload karein)")
             else:
                 st.info(f"🔍 Status: **{verdict}** (Integrity Validated; Issuer Review Recommended)")
 
@@ -77,11 +79,13 @@ with col2:
 
             with tab1:
                 st.markdown("#### Masked Identity Fields")
-                if res.get("data"):
+                if res.get("status") == "FAIL":
+                    st.warning("Document reject hua hai; identity data display nahi kiya gaya.")
+                elif res.get("data"):
                     for k, v in res["data"].items():
                         st.write(f"**{k.replace('_', ' ').title()}:** `{v}`")
                 else:
-                    st.write("No fields extracted.")
+                    st.write("No fields extracted. OCR warning check karein.")
 
                 st.markdown("#### Decision Findings & Audit Trail")
                 for f in res.get("flags", []):
